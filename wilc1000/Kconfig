@@ -7,7 +7,7 @@ config WILC1000
 choice
         prompt "Memory Allocation"
         depends on WILC1000
-        default WILC1000_PREALLOCATE_AT_LOADING_DRIVER
+        default WILC1000_PREALLOCATE_DURING_SYSTEM_BOOT
 
         config WILC1000_PREALLOCATE_DURING_SYSTEM_BOOT
                 bool "Preallocate memory pool during system boot"
