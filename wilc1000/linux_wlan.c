@@ -46,10 +46,6 @@
 
 #include "svnrevision.h"
 
-// --> chris.park use internel MAC address
-unsigned char mac_add[6];
-// <-- chris.park use internal MAC address
-
 #if defined(CUSTOMER_PLATFORM)
 /*
  TODO : Write power control functions as customer platform.
@@ -62,7 +58,6 @@ unsigned char mac_add[6];
  #define _linux_wlan_device_detection() 	{}
  #define _linux_wlan_device_removal()		{}
 #endif
-
 #ifdef DISABLE_PWRSAVE_AND_SCAN_DURING_IP
 extern WILC_Bool g_obtainingIP;
 #endif
@@ -123,16 +118,10 @@ static struct notifier_block g_dev_notifier = {
 
 
 #ifndef STA_FIRMWARE
-#define STA_FIRMWARE	"wifi_firmware.bin"
+#define STA_FIRMWARE_1002	"WILC1002_firmware.bin"
+#define STA_FIRMWARE_1003	"WILC1003_firmware.bin"
 #endif
 
-#ifndef AP_FIRMWARE
-#define AP_FIRMWARE		"wifi_firmware_ap.bin"
-#endif
-
-#ifndef P2P_CONCURRENCY_FIRMWARE
-#define P2P_CONCURRENCY_FIRMWARE	"wifi_firmware_p2p_concurrency.bin"
-#endif
 
 
 
@@ -835,20 +824,35 @@ static void linux_wlan_mac_indicate(int flag){
 
 struct net_device * GetIfHandler(uint8_t* pMacHeader)
 {
-	uint8_t *Bssid,*Bssid1;
+	uint8_t *Bssid,*Bssid1,offset = 10;
 	int i =0;
 
 	Bssid  = pMacHeader+10;
 	Bssid1 = pMacHeader+4;
-		
+
+	offset = 10;
 	for(i=0;i<g_linux_wlan->u8NoIfcs;i++)
 	{
-		if(!memcmp(Bssid1,g_linux_wlan->strInterfaceInfo[i].aBSSID,ETH_ALEN) || 
-			!memcmp(Bssid,g_linux_wlan->strInterfaceInfo[i].aBSSID,ETH_ALEN))
+		if(g_linux_wlan->strInterfaceInfo[i].u8IfcType == STATION_MODE)
 		{
-			return g_linux_wlan->strInterfaceInfo[i].wilc_netdev;
-		}		
+			if(!memcmp(pMacHeader+offset,g_linux_wlan->strInterfaceInfo[i].aBSSID,ETH_ALEN))			
+			{			
+				return g_linux_wlan->strInterfaceInfo[i].wilc_netdev;
+			}
+		}
 	}
+	offset = 4;
+	for(i=0;i<g_linux_wlan->u8NoIfcs;i++)
+	{
+		if(g_linux_wlan->strInterfaceInfo[i].u8IfcType == AP_MODE)
+		{
+			if(!memcmp(pMacHeader+offset,g_linux_wlan->strInterfaceInfo[i].aBSSID,ETH_ALEN))			
+			{			
+				return g_linux_wlan->strInterfaceInfo[i].wilc_netdev;
+			}
+		}
+	}
+	#if 0
 	PRINT_INFO(INIT_DBG,"Invalide handle\n");
 	for(i=0;i<25;i++)
 	{
@@ -866,10 +870,11 @@ struct net_device * GetIfHandler(uint8_t* pMacHeader)
 		}		
 	}
 	PRINT_INFO(INIT_DBG,"\n");
+	#endif
 	return NULL;
 }
 
-int linux_wlan_set_bssid(struct net_device * wilc_netdev,uint8_t * pBSSID)
+int linux_wlan_set_bssid(struct net_device * wilc_netdev,uint8_t * pBSSID,uint8_t mode)
 {
 	int i = 0;
 	int ret = -1;
@@ -881,6 +886,7 @@ int linux_wlan_set_bssid(struct net_device * wilc_netdev,uint8_t * pBSSID)
 		{
 			PRINT_D(INIT_DBG,"set bssid [%x][%x][%x]\n",pBSSID[0],pBSSID[1],pBSSID[2]);
 			memcpy(g_linux_wlan->strInterfaceInfo[i].aBSSID,pBSSID,6);
+			g_linux_wlan->strInterfaceInfo[i].u8IfcType = mode;
 			ret = 0;
 			break;
 		}		
@@ -1019,20 +1025,18 @@ int linux_wlan_get_firmware(perInterface_wlan_t* p_nic){
 	perInterface_wlan_t* nic = p_nic;
 	int ret = 0;	
 	const struct firmware* wilc_firmware;
-	char *firmware;
+	char *firmware;	
+	unsigned int chipId;
+
 	
 
-	if(nic->iftype == AP_MODE)
-		firmware = AP_FIRMWARE;
-	else if(nic->iftype == STATION_MODE)
-		firmware = STA_FIRMWARE;
-
-	/*BugID_5137*/
+	chipId = wilc_get_chipid(0);
+	if(chipId < 0x1003a0)
+		firmware = STA_FIRMWARE_1002;
 	else
-	{
-		PRINT_D(INIT_DBG,"Get P2P_CONCURRENCY_FIRMWARE\n");
-		firmware = P2P_CONCURRENCY_FIRMWARE;
-	}
+		firmware = STA_FIRMWARE_1003;
+
+	printk("loading firmware %s\n",firmware);
 	
 
 	
@@ -1159,6 +1163,7 @@ static int linux_wlan_init_test_config(struct net_device *dev, linux_wlan_t* p_n
 	tstrWILC_WFIDrv * pstrWFIDrv;
 	
 	PRINT_D(TX_DBG,"Start configuring Firmware\n");
+
 	priv = wiphy_priv(dev->ieee80211_ptr->wiphy);
 	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
 	PRINT_D(INIT_DBG, "Host = %x\n",(WILC_Uint32)pstrWFIDrv);
@@ -1383,18 +1388,6 @@ static int linux_wlan_init_test_config(struct net_device *dev, linux_wlan_t* p_n
 	if (!g_linux_wlan->oup.wlan_cfg_set(0, WID_11N_TXOP_PROT_DISABLE, c_val, 1, 0,0))
 		goto _fail_;	
 
- // --> chris.park test code
-	{
-		perInterface_wlan_t* nic;
-		nic = netdev_priv(dev);
-		if (nic->mac_opened == 0) {
-			host_int_get_MacAddress(pstrWFIDrv, mac_add);
-		}
-
-		if (!g_linux_wlan->oup.wlan_cfg_set(0, WID_MAC_ADDR, mac_add, 6, 0,0))
-			goto _fail_;
-	}
- // <-- chris.park test code	
 	/**
 		AP only
 	**/
@@ -1766,7 +1759,7 @@ static void wlan_deinitialize_threads(linux_wlan_t* nic){
 		if(g_linux_wlan->rx_bh_thread != NULL){
 			kthread_stop(g_linux_wlan->rx_bh_thread);		
 			g_linux_wlan->rx_bh_thread= NULL;
-			}
+		}
 	#endif
 }
 
@@ -2075,7 +2068,6 @@ int mac_open(struct net_device *ndev){
 		return  ret;
 	}
 
-	Set_machw_change_vir_if(WILC_FALSE);
 	
 	status = host_int_get_MacAddress(priv->hWILCWFIDrv, mac_add);
 	PRINT_D(INIT_DBG, "Mac address: %x:%x:%x:%x:%x:%x\n", mac_add[0], mac_add[1], mac_add[2],
@@ -2088,6 +2080,29 @@ int mac_open(struct net_device *ndev){
 		{
 			memcpy(g_linux_wlan->strInterfaceInfo[i].aSrcAddress, mac_add, ETH_ALEN);
 			g_linux_wlan->strInterfaceInfo[i].drvHandler = (WILC_Uint32)priv->hWILCWFIDrv;
+			if(nic->iftype == AP_MODE)
+				host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,0);
+			else if(linux_wlan_get_num_conn_ifcs() == 0)
+			{
+				host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,g_linux_wlan->open_ifcs);
+			}
+			else
+			{
+				if(memcmp(g_linux_wlan->strInterfaceInfo[i^1].aBSSID, 
+				g_linux_wlan->strInterfaceInfo[i].aSrcAddress, 6))
+				{
+					/*if the other interface is connected as station , set mac 1*/
+					host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,0);
+				}
+				else
+				{
+					/*if the other interface is connected as AP , set mac 0*/
+					host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,1);				
+				}
+			}
+				
+				
+			host_int_set_operation_mode(priv->hWILCWFIDrv, nic->iftype);
 			break;
 		}		
 	}

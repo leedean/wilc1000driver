@@ -678,9 +678,9 @@ static WILC_Sint32 Handle_SetWfiDrvHandler(tstrHostIfSetDrvHandler* pstrHostIfSe
 	
 	/*prepare configuration packet*/
 	strWID.u16WIDid = (WILC_Uint16)WID_SET_DRV_HANDLER;
-	strWID.enuWIDtype= WID_INT;
-	strWID.ps8WidVal = (WILC_Sint8*)&(pstrHostIfSetDrvHandler->u32Address);
-	strWID.s32ValueSize = sizeof(WILC_Uint32);
+	strWID.enuWIDtype= WID_STR;
+	strWID.ps8WidVal = (WILC_Sint8*)(pstrHostIfSetDrvHandler);
+	strWID.s32ValueSize = sizeof(tstrHostIfSetDrvHandler);
 
 	/*Sending Cfg*/
 	
@@ -6397,18 +6397,19 @@ WILC_Sint32 host_int_wait_msg_queue_idle(void)
 	
 }
 
-WILC_Sint32 host_int_set_wfi_drv_handler(WILC_Uint32 u32address)
+WILC_Sint32 host_int_set_wfi_drv_handler(WILC_Uint32 u32address,WILC_Uint8 u8MacIndex)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 
 	tstrHostIFmsg strHostIFmsg;
 
-
+		printk("set drv handle = %x , %d\n",u32address,u8MacIndex);
 	/* prepare the set driver handler message */
 	
 	WILC_memset(&strHostIFmsg, 0, sizeof(tstrHostIFmsg));
 	strHostIFmsg.u16MsgId = HOST_IF_MSG_SET_WFIDRV_HANDLER;
 	strHostIFmsg.uniHostIFmsgBody.strHostIfSetDrvHandler.u32Address=u32address;
+	strHostIFmsg.uniHostIFmsgBody.strHostIfSetDrvHandler.u8MacIndex = u8MacIndex;
 	//strHostIFmsg.drvHandler=hWFIDrv;
 
 	s32Error = WILC_MsgQueueSend(&gMsgQHostIF, &strHostIFmsg, sizeof(tstrHostIFmsg), WILC_NULL);
@@ -7385,7 +7386,7 @@ WILC_Sint32 host_int_deinit(WILC_WFIDrvHandle hWFIDrv)
 	WILC_TimerDestroy(&(pstrWFIDrv->hRemainOnChannel), WILC_NULL);
 	#endif
 	
-	host_int_set_wfi_drv_handler((WILC_Uint32)WILC_NULL);
+	host_int_set_wfi_drv_handler((WILC_Uint32)WILC_NULL,0);
 	WILC_SemaphoreAcquire(&hSemDeinitDrvHandle, NULL);
 
 	
@@ -8155,6 +8156,11 @@ WILC_Sint32 host_int_set_power_mgmt(WILC_WFIDrvHandle hWFIDrv, WILC_Bool bIsEnab
 	tstrWILC_WFIDrv * pstrWFIDrv = (tstrWILC_WFIDrv *)hWFIDrv;
 	tstrHostIFmsg strHostIFmsg;
 	tstrHostIfPowerMgmtParam* pstrPowerMgmtParam = &strHostIFmsg.uniHostIFmsgBody.strPowerMgmtparam;
+	/*if the two interface are connected and it is required to enable PS , neglect the request*/
+	if(linux_wlan_get_num_conn_ifcs() == 2 && bIsEnabled)
+	{
+		return 0;
+	}
 
 	PRINT_INFO(HOSTINF_DBG,"\n\n>> Setting PS to %d << \n\n",bIsEnabled);
 
