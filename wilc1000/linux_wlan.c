@@ -1387,7 +1387,13 @@ static int linux_wlan_init_test_config(struct net_device *dev, linux_wlan_t* p_n
 	c_val[0] = 1; 	/* TXOP Prot disable in N mode: No RTS-CTS on TX A-MPDUs to save air-time. */
 	if (!g_linux_wlan->oup.wlan_cfg_set(0, WID_11N_TXOP_PROT_DISABLE, c_val, 1, 0,0))
 		goto _fail_;	
+	
+	{
+		unsigned char mac_add[] = {0x00,0x50,0xc2,0x5e,0x1F,0x01};
+		if (!g_linux_wlan->oup.wlan_cfg_set(0, WID_MAC_ADDR, mac_add, 6, 0,0))
+			goto _fail_;
 
+	}
 	/**
 		AP only
 	**/
